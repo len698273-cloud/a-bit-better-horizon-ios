@@ -32,7 +32,7 @@ jobs:
   ipa:
     # The native launcher uses the iOS 26 SDK (Liquid Glass). macos-15 defaults to Xcode 16.4.
     # MAC_RUNNER remains available for a maintainer-provided runner with Xcode 26 or newer.
-    runs-on: ${{ github.event_name == 'pull_request' && 'macos-26' || vars.MAC_RUNNER || 'macos-26' }}
+        runs-on: macos-latest
     timeout-minutes: 90
     defaults:
       run:
