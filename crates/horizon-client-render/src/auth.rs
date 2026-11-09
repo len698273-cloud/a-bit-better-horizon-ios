@@ -956,3 +956,130 @@ mod tests {
         assert_eq!(endpoint(&doc, "session", "verify"), None);
     }
 }
+use serde::{Deserialize, Serialize};
+use std::{thread, time::Duration};
+
+#[derive(Deserialize, Debug)]
+pub struct DeviceCodeResponse {
+    pub device_code: String,
+    pub user_code: String,
+    pub verification_uri: String,
+    pub interval: u64,
+    pub expires_in: u64,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct TokenResponse {
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub token_type: String,
+    pub expires_in: u64,
+}
+
+/// Bước 1: Gửi yêu cầu lấy mã thiết bị và đường dẫn xác thực từ Microsoft
+pub fn request_device_code() -> Result<DeviceCodeResponse, Box<dyn std::error::Error>> {
+    let client = reqwest::blocking::Client::new();
+    let res = client.post("https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode")
+        .form(&[
+            ("client_id", "00000000402b5328"),
+            ("scope", "XboxLive.signin offline_access")
+        ])
+        .send()?
+        .json::<DeviceCodeResponse>()?;
+    
+    Ok(res)
+}
+
+/// Bước 2: Vòng lặp chờ (polling) cho đến khi người dùng hoàn tất đăng nhập trên trình duyệt
+pub fn poll_for_token(device_code: &str, interval: u64, expires_in: u64) -> Result<TokenResponse, Box<dyn std::error::Error>> {
+    let client = reqwest::blocking::Client::new();
+    let start_time = std::time::Instant::now();
+    let sleep_duration = Duration::from_secs(if interval > 0 { interval } else { 5 });
+
+    loop {
+        // Kiểm tra xem mã đã hết thời gian sống chưa
+        if start_time.elapsed().as_secs() > expires_in {
+            return Err("Mã xác thực đã hết hạn.".into());
+        }
+
+        thread::sleep(sleep_duration);
+
+        let res = client.post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token")
+            .form(&[
+                ("client_id", "00000000402b5328"),
+                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+                ("device_code", device_code),
+            ])
+            .send()?;
+
+        let status = res.status();
+        let text = res.text()?;
+
+        if status.is_success() {
+            let token_res: TokenResponse = serde_json::from_str(&text)?;
+            return Ok(token_res);
+        } else {
+            // Nếu người dùng chưa bấm xác thực trên web, tiếp tục chờ
+            if text.contains("authorization_pending") {
+                continue;
+            } else if text.contains("slow_down") {
+                // Microsoft yêu cầu giãn thời gian giữa các lần gọi nếu gọi quá nhanh
+                thread::sleep(Duration::from_secs(5));
+                continue;
+            } else {
+                return Err(format!("Lỗi xác thực: {}", text).into());
+            }
+        }
+    }
+pub fn request_device_code() -> Result<DeviceCodeResponse, Box<dyn std::error::Error>> {
+    let client = reqwest::blocking::Client::new();
+    let res = client.post("https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode")
+        .form(&[
+            ("client_id", "00000000402b5328"),
+            ("scope", "XboxLive.signin offline_access")
+        ])
+        .send()?
+        .json::<DeviceCodeResponse>()?;
+    
+    Ok(res)
+}
+
+pub fn poll_for_token(device_code: &str, interval: u64, expires_in: u64) -> Result<TokenResponse, Box<dyn std::error::Error>> {
+    let client = reqwest::blocking::Client::new();
+    let start_time = std::time::Instant::now();
+    let sleep_duration = Duration::from_secs(if interval > 0 { interval } else { 5 });
+
+    loop {
+        if start_time.elapsed().as_secs() > expires_in {
+            return Err("Mã xác thực đã hết hạn.".into());
+        }
+
+        thread::sleep(sleep_duration);
+
+        let res = client.post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token")
+            .form(&[
+                ("client_id", "00000000402b5328"),
+                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+                ("device_code", device_code),
+            ])
+            .send()?;
+
+        let status = res.status();
+        let text = res.text()?;
+
+        if status.is_success() {
+            let token_res: TokenResponse = serde_json::from_str(&text)?;
+            return Ok(token_res);
+        } else {
+            if text.contains("authorization_pending") {
+                continue;
+            } else if text.contains("slow_down") {
+                thread::sleep(Duration::from_secs(5));
+                continue;
+            } else {
+                return Err(format!("Lỗi xác thực: {}", text).into());
+            }
+        }
+    }
+}
+
