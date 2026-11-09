@@ -11,6 +11,7 @@
 //! the control socket would. The two share one thread, the main one, so nothing here waits: a line is queued
 //! ([`take`]), the game answers it on its next frame, and the answer goes back to Swift through the callback
 //! that came with it.
+pub mod auth;
 
 use std::{
     collections::VecDeque,
@@ -142,8 +143,12 @@ pub fn present() -> bool {
     let shown = show();
     if !shown {
         start();
+        trigger_microsoft_login();
     }
+
     shown
+}
+
 }
 
 /// Show the launcher over the game again (Quit Game, which an iPhone app does not do itself). False when this
@@ -317,4 +322,19 @@ mod tests {
         assert!(answers[1].contains("error"));
         assert_eq!(answers.len(), 2);
     }
+}
+pub fn trigger_microsoft_login() {
+    std::thread::spawn(move || {
+        match crate::auth::request_device_code() {
+            Ok(info) => {
+                println!("Mã xác thực của bạn: {}", info.user_code);
+                let _ = open::that(&info.verification_uri);
+                match crate::auth::poll_for_token(&info.device_code, info.interval, info.expires_in) {
+                    Ok(token) => println!("Đăng nhập thành công! Token: {}", token.access_token),
+                    Err(e) => eprintln!("Lỗi xác thực: {}", e),
+                }
+            }
+            Err(e) => eprintln!("Không thể tạo mã thiết bị: {}", e),
+        }
+    });
 }
